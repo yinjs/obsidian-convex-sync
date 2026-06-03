@@ -11,10 +11,12 @@
 import type { ApiFromModules, FilterApi, FunctionReference } from "convex/server";
 import { anyApi } from "convex/server";
 import type * as chunks from "../chunks.js";
+import type * as files from "../files.js";
 import type * as workspaces from "../workspaces.js";
 
 const fullApi: ApiFromModules<{
   "chunks": typeof chunks,
+  "files": typeof files,
   "workspaces": typeof workspaces,
 }> = anyApi as any;
 
