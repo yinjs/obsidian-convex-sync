@@ -3,9 +3,9 @@ import { bootstrap, unlock, unlockWithRecovery, rewrapForNewPassphrase } from ".
 import { hmacId } from "../../src/crypto/hmacId";
 import { utf8ToBytes } from "../../src/crypto/bytes";
 
-const sameChunkId = async (a: { macKey: CryptoKey }, b: { macKey: CryptoKey }) => {
-  const ia = await hmacId(a.macKey, utf8ToBytes("chunk"));
-  const ib = await hmacId(b.macKey, utf8ToBytes("chunk"));
+const sameChunkId = async (a: { chunkMacKey: CryptoKey }, b: { chunkMacKey: CryptoKey }) => {
+  const ia = await hmacId(a.chunkMacKey, utf8ToBytes("chunk"));
+  const ib = await hmacId(b.chunkMacKey, utf8ToBytes("chunk"));
   return ia === ib;
 };
 
@@ -25,6 +25,27 @@ describe("envelope", () => {
     const boot = await bootstrap("hunter2");
     const keys = await unlockWithRecovery(boot.recovery.code, boot.recovery.recoveryWrap);
     expect(await sameChunkId(boot.keys, keys)).toBe(true);
+  });
+
+  it("wrong recovery code fails (GCM tag)", async () => {
+    const boot = await bootstrap("hunter2");
+    const wrongCode = "0".repeat(boot.recovery.code.length);
+    await expect(unlockWithRecovery(wrongCode, boot.recovery.recoveryWrap)).rejects.toThrow();
+  });
+
+  it("recovery still works after a passphrase rotation", async () => {
+    const boot = await bootstrap("old-pass");
+    await rewrapForNewPassphrase("new-pass", boot.wrapped, "old-pass");
+    // recoveryWrap is independent of the passphrase wrap, so it is unaffected.
+    const keys = await unlockWithRecovery(boot.recovery.code, boot.recovery.recoveryWrap);
+    expect(await sameChunkId(boot.keys, keys)).toBe(true);
+  });
+
+  it("full envelope flow works under the PBKDF2 fallback KDF", async () => {
+    const boot = await bootstrap("hunter2", { algo: "pbkdf2", iterations: 10_000 });
+    const keys = await unlock("hunter2", boot.wrapped);
+    expect(await sameChunkId(boot.keys, keys)).toBe(true);
+    await expect(unlock("wrong", boot.wrapped)).rejects.toThrow();
   });
 
   it("passphrase rotation: new passphrase unlocks, old does not, keys unchanged", async () => {

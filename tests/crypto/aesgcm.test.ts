@@ -26,10 +26,21 @@ describe("aesgcm", () => {
     await expect(aesGcmDecrypt(key, ct)).rejects.toThrow();
   });
 
+  it("tampered nonce fails to decrypt", async () => {
+    const key = await importAesKey(randomBytes(32));
+    const ct = await aesGcmEncrypt(key, utf8ToBytes("x"));
+    ct.nonce[0]! ^= 0xff;
+    await expect(aesGcmDecrypt(key, ct)).rejects.toThrow();
+  });
+
   it("serialize then deserialize round-trips", async () => {
     const key = await importAesKey(randomBytes(32));
     const ct = await aesGcmEncrypt(key, utf8ToBytes("store me"));
     const restored = deserializeCiphertext(serializeCiphertext(ct));
     expect(bytesToUtf8(await aesGcmDecrypt(key, restored))).toBe("store me");
+  });
+
+  it("deserialize rejects malformed input (no separator)", () => {
+    expect(() => deserializeCiphertext("notvalidbase64nodothere")).toThrow();
   });
 });

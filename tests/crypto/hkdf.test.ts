@@ -11,10 +11,10 @@ describe("hkdf", () => {
     expect(bytesToUtf8(await aesGcmDecrypt(encKey, ct))).toBe("hi");
   });
 
-  it("derives a macKey usable for HMAC signing", async () => {
+  it("derives mac keys usable for HMAC signing", async () => {
     const dek = new Uint8Array(32).fill(7);
-    const { macKey } = await deriveSubkeys(dek);
-    const sig = await crypto.subtle.sign("HMAC", macKey, utf8ToBytes("x"));
+    const { chunkMacKey } = await deriveSubkeys(dek);
+    const sig = await crypto.subtle.sign("HMAC", chunkMacKey, utf8ToBytes("x"));
     expect(new Uint8Array(sig).length).toBe(32);
   });
 
@@ -24,7 +24,21 @@ describe("hkdf", () => {
     const c = await deriveSubkeys(new Uint8Array(32).fill(2));
     const sign = (k: CryptoKey) =>
       crypto.subtle.sign("HMAC", k, utf8ToBytes("m")).then((s) => new Uint8Array(s).join(","));
-    expect(await sign(a.macKey)).toBe(await sign(b.macKey));
-    expect(await sign(a.macKey)).not.toBe(await sign(c.macKey));
+    expect(await sign(a.chunkMacKey)).toBe(await sign(b.chunkMacKey));
+    expect(await sign(a.chunkMacKey)).not.toBe(await sign(c.chunkMacKey));
+  });
+
+  it("enforces key usages: enc for AES, sign-only for the mac keys", async () => {
+    const { encKey, chunkMacKey, pathMacKey } = await deriveSubkeys(new Uint8Array(32).fill(5));
+    expect([...encKey.usages].sort()).toEqual(["decrypt", "encrypt"]);
+    expect(chunkMacKey.usages).toEqual(["sign"]);
+    expect(pathMacKey.usages).toEqual(["sign"]);
+  });
+
+  it("chunk and path mac keys are domain-separated: same input -> different id", async () => {
+    const { chunkMacKey, pathMacKey } = await deriveSubkeys(new Uint8Array(32).fill(9));
+    const sign = (k: CryptoKey) =>
+      crypto.subtle.sign("HMAC", k, utf8ToBytes("collision")).then((s) => new Uint8Array(s).join(","));
+    expect(await sign(chunkMacKey)).not.toBe(await sign(pathMacKey));
   });
 });

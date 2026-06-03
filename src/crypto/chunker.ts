@@ -41,6 +41,9 @@ function nextBoundary(data: Bytes, start: number): number {
 }
 
 export function chunk(data: Bytes): Bytes[] {
+  // Empty input yields exactly one zero-length chunk: an empty file still has a
+  // chunk so it round-trips and is representable, rather than collapsing to "no
+  // content". Callers can rely on `chunk(x).length >= 1` for any input.
   if (data.length === 0) return [new Uint8Array(0)];
   const out: Bytes[] = [];
   let pos = 0;

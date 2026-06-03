@@ -35,9 +35,13 @@ async function sha256Hex(data: Bytes): Promise<string> {
   return bytesToHex(new Uint8Array(await crypto.subtle.digest("SHA-256", data)));
 }
 
-export async function bootstrap(passphrase: string): Promise<BootstrapResult> {
+// `params` lets a device pick its KDF (e.g. PBKDF2 where Argon2id's WASM is
+// unavailable); it is stored per-wrap, so devices can differ without conflict.
+export async function bootstrap(
+  passphrase: string,
+  params: KdfParams = defaultKdfParams(),
+): Promise<BootstrapResult> {
   const dek = randomBytes(32);
-  const params = defaultKdfParams();
   const salt = randomBytes(16);
   const wrapped = await wrapDek(passphrase, dek, params, salt);
 
@@ -48,6 +52,8 @@ export async function bootstrap(passphrase: string): Promise<BootstrapResult> {
   );
   const recoveryWrap = serializeCiphertext(await aesGcmEncrypt(recoveryKek, dek));
 
+  // The verifier hashes the hex-encoded sync-key string (not the raw 32 bytes);
+  // each device re-hashes the same string it was given to match.
   const syncKey = bytesToHex(randomBytes(32));
   const syncKeyHash = await sha256Hex(utf8ToBytes(syncKey));
 

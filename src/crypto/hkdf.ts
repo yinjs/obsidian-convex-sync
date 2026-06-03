@@ -2,7 +2,11 @@ import { utf8ToBytes, type Bytes } from "./bytes";
 
 export interface Subkeys {
   encKey: CryptoKey; // AES-GCM
-  macKey: CryptoKey; // HMAC-SHA256, sign only
+  // Domain-separated HMAC keys: deriving a distinct key per id namespace means a
+  // chunk and a path can never produce the same id, and the two id streams leak
+  // nothing about each other to the server.
+  chunkMacKey: CryptoKey; // HMAC-SHA256, sign only — chunkId
+  pathMacKey: CryptoKey; // HMAC-SHA256, sign only — pathId
 }
 
 // Fixed, non-secret salt for HKDF — the DEK is the secret input.
@@ -19,13 +23,17 @@ export async function deriveSubkeys(dek: Bytes): Promise<Subkeys> {
     ["encrypt", "decrypt"],
   );
 
-  const macKey = await crypto.subtle.deriveKey(
-    { name: "HKDF", hash: "SHA-256", salt: HKDF_SALT, info: utf8ToBytes("mac") },
-    base,
-    { name: "HMAC", hash: "SHA-256", length: 256 },
-    false,
-    ["sign"],
-  );
+  const deriveMacKey = (info: string) =>
+    crypto.subtle.deriveKey(
+      { name: "HKDF", hash: "SHA-256", salt: HKDF_SALT, info: utf8ToBytes(info) },
+      base,
+      { name: "HMAC", hash: "SHA-256", length: 256 },
+      false,
+      ["sign"],
+    );
 
-  return { encKey, macKey };
+  const chunkMacKey = await deriveMacKey("mac-chunk");
+  const pathMacKey = await deriveMacKey("mac-path");
+
+  return { encKey, chunkMacKey, pathMacKey };
 }

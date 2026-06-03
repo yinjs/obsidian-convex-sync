@@ -21,6 +21,12 @@ describe("chunker", () => {
     expect(chunk(data).length).toBe(1);
   });
 
+  it("empty input is a single zero-length chunk", () => {
+    const chunks = chunk(new Uint8Array(0));
+    expect(chunks.length).toBe(1);
+    expect(chunks[0]!.length).toBe(0);
+  });
+
   it("respects min/max bounds (except the final chunk may be short)", () => {
     const data = randomBytes(300_000);
     const chunks = chunk(data);
