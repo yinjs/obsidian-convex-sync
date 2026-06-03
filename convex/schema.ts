@@ -51,7 +51,8 @@ export default defineSchema({
   })
     .index("by_workspace_version", ["workspaceId", "version"])
     .index("by_workspace_path", ["workspaceId", "pathId"])
-    .index("by_workspace_file", ["workspaceId", "fileId"]),
+    .index("by_workspace_file", ["workspaceId", "fileId"])
+    .index("by_workspace_storage", ["workspaceId", "storageId"]),
 
   // Deduplicated encrypted content chunks, addressed by opaque chunkId.
   chunks: defineTable({

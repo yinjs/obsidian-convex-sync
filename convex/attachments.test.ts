@@ -44,16 +44,46 @@ test("generateUploadUrl rejects a wrong sync key", async () => {
   ).rejects.toThrow("Unauthorized");
 });
 
-test("getAttachmentUrl returns a URL for a stored blob", async () => {
+test("getAttachmentUrl returns a URL when a workspace file references the blob", async () => {
   const t = convexTest(schema, modules);
   await seed(t);
-  const storageId = await t.run(async (ctx) =>
-    ctx.storage.store(new Blob([new Uint8Array([1, 2, 3])])),
-  );
+  const storageId = await t.run(async (ctx) => {
+    const id = await ctx.storage.store(new Blob([new Uint8Array([1, 2, 3])]));
+    await ctx.db.insert("files", {
+      workspaceId: "ws1",
+      fileId: "f1",
+      pathId: "p1",
+      pathCipher: "pc1",
+      type: "attachment",
+      contentTag: "t1",
+      size: 3,
+      mtime: 1000,
+      deleted: false,
+      version: 1,
+      baseVersion: 0,
+      storageId: id,
+    });
+    return id;
+  });
   const url = await t.query(api.attachments.getAttachmentUrl, {
     workspaceId: "ws1",
     syncKey: "k",
     storageId,
   });
   expect(typeof url).toBe("string");
+});
+
+test("getAttachmentUrl returns null for a blob not referenced by the workspace", async () => {
+  const t = convexTest(schema, modules);
+  await seed(t);
+  // Blob stored but no files row references it -> not in this workspace.
+  const storageId = await t.run(async (ctx) =>
+    ctx.storage.store(new Blob([new Uint8Array([9])])),
+  );
+  const url = await t.query(api.attachments.getAttachmentUrl, {
+    workspaceId: "ws1",
+    syncKey: "k",
+    storageId,
+  });
+  expect(url).toBeNull();
 });

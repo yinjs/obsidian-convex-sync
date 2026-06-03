@@ -20,7 +20,8 @@ async function sha256Hex(value: string): Promise<string> {
 /**
  * Authenticate a request against a workspace's sync-key verifier and return
  * the workspace document. Throws "Unauthorized" for both an unknown workspace
- * and a bad key (no oracle distinguishing the two). Works with a query or a
+ * and a bad key (same error). Workspace existence is observable via timing,
+ * which is acceptable: workspaceId is not secret. Works with a query or a
  * mutation ctx — pass `ctx.db`. DatabaseWriter extends DatabaseReader.
  */
 export async function authenticate(

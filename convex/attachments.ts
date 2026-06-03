@@ -15,11 +15,25 @@ export const generateUploadUrl = mutation({
   },
 });
 
-/** Return a download URL for a stored encrypted blob, or null if it is gone. */
+/**
+ * Return a download URL for a stored encrypted blob, but only if the blob is
+ * referenced by a (live or tombstoned) file in the authenticated workspace.
+ * Returns null for an unknown blob or one that does not belong to this
+ * workspace — no cross-workspace storage dereference.
+ */
 export const getAttachmentUrl = query({
   args: { workspaceId: v.string(), syncKey: v.string(), storageId: v.id("_storage") },
   handler: async (ctx, args) => {
     await authenticate(ctx.db, args.workspaceId, args.syncKey);
+    const owning = await ctx.db
+      .query("files")
+      .withIndex("by_workspace_storage", (q) =>
+        q.eq("workspaceId", args.workspaceId).eq("storageId", args.storageId),
+      )
+      .first();
+    if (owning === null) {
+      return null;
+    }
     return await ctx.storage.getUrl(args.storageId);
   },
 });
