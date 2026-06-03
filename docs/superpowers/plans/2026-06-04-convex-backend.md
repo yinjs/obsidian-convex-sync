@@ -32,6 +32,17 @@ Key data model facts (from `docs/superpowers/specs/2026-06-03-obsidian-convex-sy
 - `ctx.storage.generateUploadUrl()` must be called from a **mutation**; `ctx.storage.getUrl(id)` works in a query.
 - Document cap is 1 MiB; a transaction may write ≤ 16 MiB / 32k docs. The chunker keeps chunks well under 1 MiB; the client batches `putChunks` to respect the txn cap.
 
+### Codegen decision (resolved during Task 0)
+
+`convex@1.40.0 codegen` requires a configured `CONVEX_DEPLOYMENT` even for `--dry-run`, so it cannot run offline. Rather than introduce a one-time interactive Convex login (and a live deployment dependency the mock tests don't need), `convex/_generated/` is **hand-maintained from Convex's standard templates** and committed. This keeps the whole test toolchain offline/CI-friendly (`convex-test` is a pure in-memory mock — it never talks to a deployment).
+
+What this means per task:
+- `convex/_generated/server.ts` — fixed boilerplate, never changes.
+- `convex/_generated/dataModel.ts` — fixed boilerplate; it derives `DataModel` from `typeof schema`, so it **automatically** reflects schema changes. Do not edit it when the schema changes.
+- `convex/_generated/api.ts` — the **only** per-module file. When you add a function module (e.g. `convex/files.ts`), add two lines: `import type * as files from "../files.js";` and a `"files": typeof files,` entry in the `ApiFromModules<{...}>` map. The runtime `api` is `anyApi as any`, so a missing entry only loses *type* checking on `api.files.*` (tests still run) — keep it in sync so types stay honest.
+
+Wherever a later task says "regenerate types", that means **edit `convex/_generated/api.ts` by hand** as above — do NOT run `npx convex codegen` (it will error on the missing deployment).
+
 ### Testing approach
 
 `convex-test` is a mock backend that runs your real function code in vitest. It is an **API-shape smoke test**, not proof of production-runtime behavior — the real evidence that `crypto.subtle` works server-side is Convex's Cloudflare-Workers-equivalent runtime docs. Treat green convex-test runs as "the wiring is correct," not "production is guaranteed."
@@ -134,19 +145,14 @@ export const list = query({
 });
 ```
 
-- [ ] **Step 6: Generate `_generated`**
+- [ ] **Step 6: Create `convex/_generated/`**
 
-Run:
-```bash
-npx convex codegen
-```
-Expected: creates `convex/_generated/` (`api.d.ts`, `server.d.ts`, etc.).
+`npx convex codegen` cannot run offline in this Convex version (it errors `No CONVEX_DEPLOYMENT set`). Per the "Codegen decision" section, hand-write the three standard generated files instead, committed to the repo:
+- `convex/_generated/server.ts` — copy Convex's standard server template (re-exports `query`, `mutation`, `action`, `internalQuery`, etc. and the `Database*`/ctx types via `convex/server` generics).
+- `convex/_generated/dataModel.ts` — standard template that defines `DataModel = DataModelFromSchemaDefinition<typeof schema>` plus `Doc`/`Id`/`TableNames`. Imports `schema from "../schema.js"`; reflects schema changes automatically.
+- `convex/_generated/api.ts` — standard template with `import type * as smoke from "../smoke.js";` and `"smoke": typeof smoke,` in the `ApiFromModules<{...}>` map; `api`/`internal` are `anyApi as any`.
 
-**Fallback if codegen demands a configured deployment** (e.g. it errors on a missing `CONVEX_DEPLOYMENT`): this is acceptable and pre-approved — the user runs their own Convex Cloud project and will configure it anyway. Run a **one-time** interactive configure (this is the only step in the whole plan that needs login):
-```bash
-npx convex dev --once   # logs in + provisions a dev deployment, then exits
-```
-That writes `.env.local`/`convex.json` and regenerates `_generated`. After it succeeds once, `npx convex codegen` works offline for the rest of the plan. If even `npx convex dev --once` cannot run (no network/login available in this environment), STOP and report BLOCKED with the exact error — the test strategy depends on `_generated/api`.
+(The templates live in `node_modules/convex/dist/esm/cli/codegen_templates/` if you need an exact reference.) Add `"vite/client"` to `tsconfig.json`'s `types` array so `import.meta.glob` typechecks.
 
 - [ ] **Step 7: Write the smoke test**
 
@@ -355,9 +361,9 @@ export default defineSchema({
 Run:
 ```bash
 git rm convex/smoke.ts convex/smoke.test.ts
-npx convex codegen
 ```
-Expected: smoke files gone; `_generated` reflects the new tables.
+Then hand-edit `convex/_generated/api.ts`: remove the `import type * as smoke ...` line and the `"smoke": typeof smoke,` map entry (leaving `ApiFromModules<{}>`). Do NOT touch `dataModel.ts` — it derives `DataModel` from `typeof schema` and reflects the new tables automatically.
+Expected: smoke files gone; `api.ts` no longer references smoke.
 
 - [ ] **Step 5: Run the test to verify it passes**
 
@@ -746,11 +752,10 @@ export const getWorkspaceMeta = query({
 });
 ```
 
-- [ ] **Step 4: Regenerate types and run the test**
+- [ ] **Step 4: Update generated api types and run the test**
 
-Run:
+Hand-edit `convex/_generated/api.ts`: add `import type * as workspaces from "../workspaces.js";` and a `"workspaces": typeof workspaces,` entry in the `ApiFromModules<{...}>` map. Then run:
 ```bash
-npx convex codegen
 npx vitest run convex/workspaces.test.ts
 ```
 Expected: 4 passed.
@@ -932,11 +937,10 @@ export const getChunks = query({
 });
 ```
 
-- [ ] **Step 4: Regenerate types and run the test**
+- [ ] **Step 4: Update generated api types and run the test**
 
-Run:
+Hand-edit `convex/_generated/api.ts`: add `import type * as chunks from "../chunks.js";` and a `"chunks": typeof chunks,` entry in the `ApiFromModules<{...}>` map. Then run:
 ```bash
-npx convex codegen
 npx vitest run convex/chunks.test.ts
 ```
 Expected: 3 passed.
@@ -1274,11 +1278,10 @@ export const getFileByPath = query({
 });
 ```
 
-- [ ] **Step 4: Regenerate types and run the test**
+- [ ] **Step 4: Update generated api types and run the test**
 
-Run:
+Hand-edit `convex/_generated/api.ts`: add `import type * as files from "../files.js";` and a `"files": typeof files,` entry in the `ApiFromModules<{...}>` map. Then run:
 ```bash
-npx convex codegen
 npx vitest run convex/files.test.ts
 ```
 Expected: 8 passed.
@@ -1406,11 +1409,10 @@ export const getAttachmentUrl = query({
 });
 ```
 
-- [ ] **Step 4: Regenerate types and run the test**
+- [ ] **Step 4: Update generated api types and run the test**
 
-Run:
+Hand-edit `convex/_generated/api.ts`: add `import type * as attachments from "../attachments.js";` and a `"attachments": typeof attachments,` entry in the `ApiFromModules<{...}>` map. Then run:
 ```bash
-npx convex codegen
 npx vitest run convex/attachments.test.ts
 ```
 Expected: 3 passed.
@@ -1444,6 +1446,6 @@ git commit -m "feat(convex): attachment upload + serve URLs"
 
 - Never import from `src/` inside `convex/`. The backend is crypto-agnostic.
 - The client supplies all randomness (fileId, nonces); never call `crypto.getRandomValues`/`Math.random` in a function to generate stored values.
-- Run `npx convex codegen` whenever you add or change a function or the schema, before running tests or typecheck, so `_generated/api` is current.
+- Do NOT run `npx convex codegen` (it errors without a deployment). When you add a function module, hand-edit `convex/_generated/api.ts` per the "Codegen decision" section: add the `import type * as <mod>` line and the `"<mod>": typeof <mod>,` map entry. `dataModel.ts`/`server.ts` need no edits.
 - `authenticate` takes `ctx.db` (a `DatabaseReader`/`DatabaseWriter`), not the whole `ctx`.
 - convex-test is API-shape evidence, not a production-runtime guarantee. The load-bearing claim "server-side `crypto.subtle` works" is additionally proven by Task 0 Step 7's digest assertion and by Convex's CF-Workers-equivalent runtime docs.
