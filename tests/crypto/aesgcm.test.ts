@@ -22,7 +22,7 @@ describe("aesgcm", () => {
   it("tampered ciphertext fails to decrypt", async () => {
     const key = await importAesKey(randomBytes(32));
     const ct = await aesGcmEncrypt(key, utf8ToBytes("x"));
-    ct.data[0] ^= 0xff;
+    ct.data[0]! ^= 0xff;
     await expect(aesGcmDecrypt(key, ct)).rejects.toThrow();
   });
 

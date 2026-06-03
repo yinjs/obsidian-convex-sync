@@ -1,26 +1,26 @@
-import { randomBytes, bytesToBase64, base64ToBytes } from "./bytes";
+import { randomBytes, bytesToBase64, base64ToBytes, type Bytes } from "./bytes";
 
 export interface Ciphertext {
-  nonce: Uint8Array; // 12 bytes
-  data: Uint8Array; // ciphertext + 16-byte GCM tag
+  nonce: Bytes; // 12 bytes
+  data: Bytes; // ciphertext + 16-byte GCM tag
 }
 
 const NONCE_LEN = 12;
 
-export async function importAesKey(raw: Uint8Array): Promise<CryptoKey> {
+export async function importAesKey(raw: Bytes): Promise<CryptoKey> {
   return crypto.subtle.importKey("raw", raw, { name: "AES-GCM" }, false, [
     "encrypt",
     "decrypt",
   ]);
 }
 
-export async function aesGcmEncrypt(key: CryptoKey, plaintext: Uint8Array): Promise<Ciphertext> {
+export async function aesGcmEncrypt(key: CryptoKey, plaintext: Bytes): Promise<Ciphertext> {
   const nonce = randomBytes(NONCE_LEN);
   const buf = await crypto.subtle.encrypt({ name: "AES-GCM", iv: nonce }, key, plaintext);
   return { nonce, data: new Uint8Array(buf) };
 }
 
-export async function aesGcmDecrypt(key: CryptoKey, ct: Ciphertext): Promise<Uint8Array> {
+export async function aesGcmDecrypt(key: CryptoKey, ct: Ciphertext): Promise<Bytes> {
   const buf = await crypto.subtle.decrypt({ name: "AES-GCM", iv: ct.nonce }, key, ct.data);
   return new Uint8Array(buf);
 }

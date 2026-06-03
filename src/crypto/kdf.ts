@@ -1,6 +1,6 @@
 import { argon2id } from "hash-wasm";
 import { importAesKey } from "./aesgcm";
-import { utf8ToBytes } from "./bytes";
+import { utf8ToBytes, type Bytes } from "./bytes";
 
 export type KdfParams =
   | { algo: "pbkdf2"; iterations: number }
@@ -13,14 +13,14 @@ export function defaultKdfParams(): KdfParams {
 
 export async function deriveKek(
   passphrase: string,
-  salt: Uint8Array,
+  salt: Bytes,
   params: KdfParams,
 ): Promise<CryptoKey> {
   const raw = await deriveRawKek(passphrase, salt, params);
   return importAesKey(raw);
 }
 
-async function deriveRawKek(passphrase: string, salt: Uint8Array, params: KdfParams): Promise<Uint8Array> {
+async function deriveRawKek(passphrase: string, salt: Bytes, params: KdfParams): Promise<Bytes> {
   if (params.algo === "argon2id") {
     const hash = await argon2id({
       password: utf8ToBytes(passphrase),
@@ -31,7 +31,7 @@ async function deriveRawKek(passphrase: string, salt: Uint8Array, params: KdfPar
       hashLength: 32,
       outputType: "binary",
     });
-    return hash as Uint8Array;
+    return hash as Bytes;
   }
   // pbkdf2 fallback (native WebCrypto)
   const base = await crypto.subtle.importKey("raw", utf8ToBytes(passphrase), "PBKDF2", false, ["deriveBits"]);

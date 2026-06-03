@@ -1,3 +1,5 @@
+import type { Bytes } from "./bytes";
+
 // FastCDC-style content-defined chunking with a gear hash.
 // Bounds chosen so each plaintext chunk's ciphertext stays well under Convex's 1 MiB doc cap.
 export const CHUNK_MIN = 16 * 1024; // 16 KiB
@@ -22,7 +24,7 @@ function buildGear(): Uint32Array {
   return g;
 }
 
-function nextBoundary(data: Uint8Array, start: number): number {
+function nextBoundary(data: Bytes, start: number): number {
   const end = Math.min(start + CHUNK_MAX, data.length);
   let hash = 0;
   let i = start;
@@ -38,9 +40,9 @@ function nextBoundary(data: Uint8Array, start: number): number {
   return end; // hit CHUNK_MAX or end of data
 }
 
-export function chunk(data: Uint8Array): Uint8Array[] {
+export function chunk(data: Bytes): Bytes[] {
   if (data.length === 0) return [new Uint8Array(0)];
-  const out: Uint8Array[] = [];
+  const out: Bytes[] = [];
   let pos = 0;
   while (pos < data.length) {
     const next = nextBoundary(data, pos);

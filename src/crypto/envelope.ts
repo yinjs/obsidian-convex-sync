@@ -1,4 +1,4 @@
-import { randomBytes, bytesToBase64, base64ToBytes, bytesToHex, utf8ToBytes } from "./bytes";
+import { randomBytes, bytesToBase64, base64ToBytes, bytesToHex, utf8ToBytes, type Bytes } from "./bytes";
 import { importAesKey, aesGcmEncrypt, aesGcmDecrypt, serializeCiphertext, deserializeCiphertext } from "./aesgcm";
 import { deriveKek, defaultKdfParams, type KdfParams } from "./kdf";
 import { deriveSubkeys, type Subkeys } from "./hkdf";
@@ -20,18 +20,18 @@ export interface BootstrapResult {
 
 const RECOVERY_SALT = utf8ToBytes("obsidian-convex-sync/recovery/v1");
 
-async function wrapDek(passphrase: string, dek: Uint8Array, params: KdfParams, salt: Uint8Array): Promise<WrappedDek> {
+async function wrapDek(passphrase: string, dek: Bytes, params: KdfParams, salt: Bytes): Promise<WrappedDek> {
   const kek = await deriveKek(passphrase, salt, params);
   const dekWrap = serializeCiphertext(await aesGcmEncrypt(kek, dek));
   return { kdfSalt: bytesToBase64(salt), kdfParams: params, dekWrap };
 }
 
-async function unwrapDek(passphrase: string, wrapped: WrappedDek): Promise<Uint8Array> {
+async function unwrapDek(passphrase: string, wrapped: WrappedDek): Promise<Bytes> {
   const kek = await deriveKek(passphrase, base64ToBytes(wrapped.kdfSalt), wrapped.kdfParams);
   return aesGcmDecrypt(kek, deserializeCiphertext(wrapped.dekWrap)); // throws on wrong passphrase
 }
 
-async function sha256Hex(data: Uint8Array): Promise<string> {
+async function sha256Hex(data: Bytes): Promise<string> {
   return bytesToHex(new Uint8Array(await crypto.subtle.digest("SHA-256", data)));
 }
 

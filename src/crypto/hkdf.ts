@@ -1,4 +1,4 @@
-import { utf8ToBytes } from "./bytes";
+import { utf8ToBytes, type Bytes } from "./bytes";
 
 export interface Subkeys {
   encKey: CryptoKey; // AES-GCM
@@ -8,7 +8,7 @@ export interface Subkeys {
 // Fixed, non-secret salt for HKDF — the DEK is the secret input.
 const HKDF_SALT = utf8ToBytes("obsidian-convex-sync/hkdf/v1");
 
-export async function deriveSubkeys(dek: Uint8Array): Promise<Subkeys> {
+export async function deriveSubkeys(dek: Bytes): Promise<Subkeys> {
   const base = await crypto.subtle.importKey("raw", dek, "HKDF", false, ["deriveKey"]);
 
   const encKey = await crypto.subtle.deriveKey(
