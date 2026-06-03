@@ -48,6 +48,14 @@ describe("envelope", () => {
     await expect(unlock("wrong", boot.wrapped)).rejects.toThrow();
   });
 
+  it("rotation preserves the original KDF (no silent algorithm switch)", async () => {
+    const boot = await bootstrap("old-pass", { algo: "pbkdf2", iterations: 10_000 });
+    const rewrapped = await rewrapForNewPassphrase("new-pass", boot.wrapped, "old-pass");
+    expect(rewrapped.kdfParams.algo).toBe("pbkdf2");
+    const keys = await unlock("new-pass", rewrapped);
+    expect(await sameChunkId(boot.keys, keys)).toBe(true);
+  });
+
   it("passphrase rotation: new passphrase unlocks, old does not, keys unchanged", async () => {
     const boot = await bootstrap("old-pass");
     const rewrapped = await rewrapForNewPassphrase("new-pass", boot.wrapped, "old-pass");

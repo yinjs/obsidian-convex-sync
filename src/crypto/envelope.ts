@@ -84,7 +84,9 @@ export async function rewrapForNewPassphrase(
   oldPassphrase: string,
 ): Promise<WrappedDek> {
   const dek = await unwrapDek(oldPassphrase, wrapped); // verifies old passphrase
-  const params = defaultKdfParams();
+  // Inherit the existing wrap's KDF: rotation must not silently switch algorithm
+  // (e.g. PBKDF2 -> Argon2id), which could lock out a device that can only run
+  // the original KDF. Only the salt is refreshed.
   const salt = randomBytes(16);
-  return wrapDek(newPassphrase, dek, params, salt);
+  return wrapDek(newPassphrase, dek, wrapped.kdfParams, salt);
 }
