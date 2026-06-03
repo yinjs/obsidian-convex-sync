@@ -10,11 +10,8 @@
 
 import type { ApiFromModules, FilterApi, FunctionReference } from "convex/server";
 import { anyApi } from "convex/server";
-import type * as smoke from "../smoke.js";
 
-const fullApi: ApiFromModules<{
-  "smoke": typeof smoke,
-}> = anyApi as any;
+const fullApi: ApiFromModules<{}> = anyApi as any;
 
 /**
  * A utility for referencing Convex functions in your app's public API.
