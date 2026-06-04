@@ -117,4 +117,42 @@ describe("pull", () => {
     expect(bytesToUtf8(await d.vault.readBinary("a (conflict 2026-06-04 12-00-00).md"))).toBe("remote one");
     expect(d.state.getByFileId("remoteId")?.path).toBe("a (conflict 2026-06-04 12-00-00).md");
   });
+
+  it("rematerializes a locally-deleted, content-unchanged file when remote renames it (bug A)", async () => {
+    const d = await deps();
+    await remotePutNote(d, "f1", "a.md", "body", 100);
+    await pull(d); // a.md created, f1 synced v1
+    await d.vault.trash("a.md"); // deleted locally, no event captured
+    // remote renames f1 a.md -> b.md, content unchanged
+    const enc = await encodeNote(b("body"), d.keys);
+    await d.remote.putChunks(enc.chunks);
+    await d.remote.upsertFile({
+      fileId: "f1", pathId: await pathId("b.md", d.keys), pathCipher: await encodePath("b.md", d.keys),
+      type: "note", contentTag: enc.contentTag, size: 4, mtime: 100, baseVersion: 1, contentChunks: enc.contentChunks,
+    });
+    await pull(d);
+    expect(bytesToUtf8(await d.vault.readBinary("b.md"))).toBe("body"); // materialized, not silently skipped
+    expect(d.state.getByFileId("f1")?.path).toBe("b.md");
+  });
+
+  it("remote rename does not clobber a different local file occupying the destination (bug B)", async () => {
+    const d = await deps();
+    await remotePutNote(d, "f1", "a.md", "f1 body", 100);
+    await pull(d); // a.md = "f1 body", f1 synced v1
+    // local creates a DIFFERENT file at b.md (queued, not yet pushed → no SyncEntry)
+    await d.vault.writeBinary("b.md", b("local f2 body"), 150);
+    d.state.enqueue({ op: "upsert", fileId: newFileId(), path: "b.md" });
+    // remote renames f1 a.md -> b.md
+    const enc = await encodeNote(b("f1 body"), d.keys);
+    await d.remote.putChunks(enc.chunks);
+    await d.remote.upsertFile({
+      fileId: "f1", pathId: await pathId("b.md", d.keys), pathCipher: await encodePath("b.md", d.keys),
+      type: "note", contentTag: enc.contentTag, size: 7, mtime: 100, baseVersion: 1, contentChunks: enc.contentChunks,
+    });
+    await pull(d);
+    expect(bytesToUtf8(await d.vault.readBinary("b.md"))).toBe("local f2 body"); // local file preserved
+    expect(bytesToUtf8(await d.vault.readBinary("b (conflict 2026-06-04 12-00-00).md"))).toBe("f1 body"); // f1 diverted
+    expect(d.state.getByFileId("f1")?.path).toBe("b (conflict 2026-06-04 12-00-00).md");
+    expect(await d.vault.exists("a.md")).toBe(false); // f1 moved away from its old path
+  });
 });

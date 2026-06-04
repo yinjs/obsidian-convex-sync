@@ -121,18 +121,24 @@ async function applyClean(
 ): Promise<void> {
   let target = path;
 
-  if (!local) {
-    // create/create: a different local file already occupies this path → write remote under a conflict name.
-    const occupant = d.state.getByPathId(row.pathId);
-    if (occupant && occupant.fileId !== row.fileId && (await d.vault.exists(occupant.path))) {
-      target = conflictName(path, d.clock.conflictStamp(d.clock.now()));
-    }
-  } else if (local.path !== path) {
-    // rename by fileId
-    if (await d.vault.exists(local.path)) await d.vault.rename(local.path, target);
+  // If the canonical path is already occupied on disk by a DIFFERENT file
+  // (another tracked file, or a local-only file queued but not yet pushed, so
+  // it has no SyncEntry), divert the incoming file to a conflict name rather
+  // than clobbering that file. `local.path === path` means it is THIS file
+  // being updated in place — not a collision.
+  const occupiedByOther = (!local || local.path !== path) && (await d.vault.exists(path));
+  if (occupiedByOther) {
+    target = conflictName(path, d.clock.conflictStamp(d.clock.now()));
   }
 
-  if (!local || local.contentTag !== row.contentTag) {
+  if (local && local.path !== target && (await d.vault.exists(local.path))) {
+    // rename by fileId to the (possibly diverted) target
+    await d.vault.rename(local.path, target);
+  }
+
+  // Write when: new file, content changed, OR the target is missing on disk
+  // (e.g. the file was deleted locally with no event and must be rematerialized).
+  if (!local || local.contentTag !== row.contentTag || !(await d.vault.exists(target))) {
     await d.vault.writeBinary(target, await fetchContent(row, d), row.mtime);
   }
 
