@@ -130,6 +130,21 @@ export const listChanges = query({
   },
 });
 
+/** Authenticated read of a single file row by its stable fileId (or null).
+ *  Used by the client's push idempotency check after a conflict response. */
+export const getFileById = query({
+  args: { workspaceId: v.string(), syncKey: v.string(), fileId: v.string() },
+  handler: async (ctx, args) => {
+    await authenticate(ctx.db, args.workspaceId, args.syncKey);
+    return await ctx.db
+      .query("files")
+      .withIndex("by_workspace_file", (q) =>
+        q.eq("workspaceId", args.workspaceId).eq("fileId", args.fileId),
+      )
+      .unique();
+  },
+});
+
 /**
  * Resolve a path (via its HMAC pathId) to its live file row, or null. A path
  * may have a tombstone plus a later live file sharing the same pathId, so we

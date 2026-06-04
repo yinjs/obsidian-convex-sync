@@ -138,3 +138,27 @@ test("listChanges respects the limit and signals more", async () => {
   expect(page.nextCursor).toBe(1);
   expect(page.hasMore).toBe(true);
 });
+
+test("getFileById returns the row for a known fileId, scoped to the workspace", async () => {
+  const t = convexTest(schema, modules);
+  await seed(t);
+  await t.mutation(api.files.upsertFile, { ...base, baseVersion: 0 }); // f1 -> v1
+  const row = await t.query(api.files.getFileById, { workspaceId: "ws1", syncKey: "k", fileId: "f1" });
+  expect(row?.fileId).toBe("f1");
+  expect(row?.version).toBe(1);
+});
+
+test("getFileById returns null for an unknown fileId", async () => {
+  const t = convexTest(schema, modules);
+  await seed(t);
+  const row = await t.query(api.files.getFileById, { workspaceId: "ws1", syncKey: "k", fileId: "ghost" });
+  expect(row).toBeNull();
+});
+
+test("getFileById rejects a wrong sync key", async () => {
+  const t = convexTest(schema, modules);
+  await seed(t);
+  await expect(
+    t.query(api.files.getFileById, { workspaceId: "ws1", syncKey: "bad", fileId: "f1" }),
+  ).rejects.toThrow("Unauthorized");
+});
