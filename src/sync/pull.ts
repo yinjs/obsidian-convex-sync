@@ -107,6 +107,11 @@ async function applyConflict(
     d.state.enqueue({ op: "upsert", fileId: row.fileId, path: canonical });
   } else {
     // Remote newer (or tie) → remote takes the canonical slot; local becomes a conflict copy.
+    // Known LOW divergence: when occupiedByThird forced canonical = local.path, this
+    // device tracks the file at local.path while the server has it at `path`, and no
+    // re-push is enqueued (unlike the local-newer branch). No content is lost, but the
+    // file stays mis-pathed here. Enqueuing a re-push would risk ping-pong with the
+    // third file, so we accept the cosmetic divergence.
     const cpath = conflictName(local.path, stamp);
     await d.vault.writeBinary(cpath, localContent, localMtime);
     d.state.enqueue({ op: "upsert", fileId: newFileId(), path: cpath });
@@ -134,12 +139,19 @@ async function applyClean(
   // being updated in place — not a collision.
   const occupiedByOther = (!local || local.path !== path) && (await d.vault.exists(path));
   if (occupiedByOther) {
-    // If the occupant is byte-identical to the incoming remote content, it IS this
-    // file — content written by a crashed pull that never persisted state (mirrors
-    // the adopt-if-same-contentTag idempotency in push.ts). Adopt it in place
-    // instead of producing a spurious conflict copy.
+    // Adopt the occupant in place ONLY when it is byte-identical to the incoming
+    // remote content AND no other local identity claims this path — i.e. it is our
+    // own write from a crashed pull that never persisted state. (push.ts adopts the
+    // SAME fileId's server row, safe by construction; here the occupant may be a
+    // DIFFERENT local file, so we must rule that out — otherwise we orphan that
+    // file's queued identity and manufacture a duplicate.) A tracked entry at
+    // `path` catches the drain-before-pull order (sync()); a queued upsert at
+    // `path` catches the pull-before-drain order (reconcile()). Both are needed.
+    // The guard fails safe: its only failure mode is an unnecessary divert (a
+    // spurious conflict copy), never a clobber or loss — do not optimize it away.
     const occTag = await computeContentTag(await d.vault.readBinary(path), d.keys);
-    if (occTag !== row.contentTag) {
+    const claimedByOther = d.state.getByPath(path) !== undefined || d.state.queuedUpsertPaths().has(path);
+    if (occTag !== row.contentTag || claimedByOther) {
       target = conflictName(path, d.clock.conflictStamp(d.clock.now()));
     }
   }

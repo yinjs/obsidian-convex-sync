@@ -16,9 +16,7 @@ export async function reconcile(d: Deps): Promise<void> {
   // second fileId — that would create two remote rows sharing one pathId. The
   // queue is durable, so this also covers queued-but-unpushed items from a prior
   // session.
-  const queuedUpsertPaths = new Set(
-    d.state.queueItems().filter((q) => q.op === "upsert").map((q) => q.path),
-  );
+  const queuedUpsertPaths = d.state.queuedUpsertPaths();
 
   // Local-only or content-differing files → enqueue push.
   const seen = new Set<string>();

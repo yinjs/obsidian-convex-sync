@@ -193,4 +193,35 @@ describe("pull", () => {
     expect(d.state.getByFileId("f1")?.path).toBe("a.md");
     expect(d.state.getByFileId("f1")?.syncedVersion).toBe(1);
   });
+
+  it("I1 guard: diverts a byte-identical remote file when a QUEUED local file claims the path (pull-before-drain)", async () => {
+    const d = await deps();
+    // local-only a.md queued under fLocal (no SyncEntry yet) — the reconcile() order
+    // where pull runs before drainQueue. The adopt heuristic must NOT steal a.md from
+    // fLocal just because content happens to match.
+    const fLocal = newFileId();
+    await d.vault.writeBinary("a.md", b("same body"), 100);
+    d.state.enqueue({ op: "upsert", fileId: fLocal, path: "a.md" });
+    await remotePutNote(d, "f1", "a.md", "same body", 120); // byte-identical remote file
+    await pull(d);
+    // f1 diverted to a conflict copy; a.md still belongs to the local file (no zombie).
+    expect(d.state.getByFileId("f1")?.path).toBe("a (conflict 2026-06-04 12-00-00).md");
+    expect(bytesToUtf8(await d.vault.readBinary("a (conflict 2026-06-04 12-00-00).md"))).toBe("same body");
+    expect(bytesToUtf8(await d.vault.readBinary("a.md"))).toBe("same body");
+    expect(d.state.queuedUpsertPaths().has("a.md")).toBe(true); // fLocal still owns its queued push
+  });
+
+  it("I1 guard: diverts a byte-identical remote file when a TRACKED local file claims the path (drain-before-pull)", async () => {
+    const d = await deps();
+    // local a.md pushed first (sync() order: drainQueue before pull) → fLocal has an entry.
+    const fLocal = newFileId();
+    await d.vault.writeBinary("a.md", b("same body"), 100);
+    d.state.enqueue({ op: "upsert", fileId: fLocal, path: "a.md" });
+    await drainQueue(d); // fLocal now tracked at a.md
+    await remotePutNote(d, "f1", "a.md", "same body", 120); // byte-identical remote file
+    await pull(d);
+    // local keeps the path (entry intact, no zombie); f1 diverted to a conflict copy.
+    expect(d.state.getByPath("a.md")?.fileId).toBe(fLocal);
+    expect(d.state.getByFileId("f1")?.path).toBe("a (conflict 2026-06-04 12-00-00).md");
+  });
 });
