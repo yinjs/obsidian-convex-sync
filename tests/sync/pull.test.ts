@@ -155,4 +155,42 @@ describe("pull", () => {
     expect(d.state.getByFileId("f1")?.path).toBe("b (conflict 2026-06-04 12-00-00).md");
     expect(await d.vault.exists("a.md")).toBe(false); // f1 moved away from its old path
   });
+
+  it("conflict resolution does not clobber a third local file at the remote's destination (bug C1)", async () => {
+    const d = await deps();
+    await remotePutNote(d, "f1", "a.md", "f1 base", 100);
+    await pull(d); // a.md = "f1 base", f1 synced v1
+    // local edits a.md (now diverged from synced state)
+    await d.vault.writeBinary("a.md", b("f1 local edit"), 150);
+    // a DIFFERENT local file sits at b.md (queued, not yet pushed → no SyncEntry)
+    await d.vault.writeBinary("b.md", b("f2 third file"), 160);
+    d.state.enqueue({ op: "upsert", fileId: newFileId(), path: "b.md" });
+    // remote renames f1 a.md -> b.md with a NEWER mtime (remote wins)
+    const enc = await encodeNote(b("f1 remote rename"), d.keys);
+    await d.remote.putChunks(enc.chunks);
+    await d.remote.upsertFile({
+      fileId: "f1", pathId: await pathId("b.md", d.keys), pathCipher: await encodePath("b.md", d.keys),
+      type: "note", contentTag: enc.contentTag, size: 16, mtime: 200, baseVersion: 1, contentChunks: enc.contentChunks,
+    });
+    await pull(d);
+    // third file at b.md is untouched
+    expect(bytesToUtf8(await d.vault.readBinary("b.md"))).toBe("f2 third file");
+    // remote winner placed at local's slot a.md; local edit preserved as a conflict copy
+    expect(bytesToUtf8(await d.vault.readBinary("a.md"))).toBe("f1 remote rename");
+    expect(bytesToUtf8(await d.vault.readBinary("a (conflict 2026-06-04 12-00-00).md"))).toBe("f1 local edit");
+    expect(d.state.getByFileId("f1")?.path).toBe("a.md");
+  });
+
+  it("does not create a spurious conflict copy when a crashed pull already wrote the content (bug I1)", async () => {
+    const d = await deps();
+    await remotePutNote(d, "f1", "a.md", "remote body", 100);
+    // simulate a crashed pull: the file was written to disk with the EXACT remote
+    // content, but sync-state (entry + cursor) was never persisted. Replay below.
+    await d.vault.writeBinary("a.md", b("remote body"), 100);
+    await pull(d); // no entry, cursor still 0 → row replays
+    expect(bytesToUtf8(await d.vault.readBinary("a.md"))).toBe("remote body");
+    expect(await d.vault.exists("a (conflict 2026-06-04 12-00-00).md")).toBe(false); // no spurious copy
+    expect(d.state.getByFileId("f1")?.path).toBe("a.md");
+    expect(d.state.getByFileId("f1")?.syncedVersion).toBe(1);
+  });
 });

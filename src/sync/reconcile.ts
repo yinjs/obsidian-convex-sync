@@ -11,10 +11,20 @@ import { computeContentTag } from "./codec";
 export async function reconcile(d: Deps): Promise<void> {
   await pull(d);
 
+  // Paths already queued for upsert (e.g. conflict copies created by the pull
+  // above, or local edits queued before a crash) must not be re-enqueued under a
+  // second fileId — that would create two remote rows sharing one pathId. The
+  // queue is durable, so this also covers queued-but-unpushed items from a prior
+  // session.
+  const queuedUpsertPaths = new Set(
+    d.state.queueItems().filter((q) => q.op === "upsert").map((q) => q.path),
+  );
+
   // Local-only or content-differing files → enqueue push.
   const seen = new Set<string>();
   for (const f of await d.vault.list()) {
     seen.add(f.path);
+    if (queuedUpsertPaths.has(f.path)) continue;
     const entry = d.state.getByPath(f.path);
     const tag = await computeContentTag(await d.vault.readBinary(f.path), d.keys);
     if (!entry) {

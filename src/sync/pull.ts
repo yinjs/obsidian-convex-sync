@@ -2,7 +2,7 @@ import type { Bytes, Subkeys } from "../crypto";
 import type { FileRow, RemotePort, VaultPort } from "./ports";
 import type { Deps } from "./push";
 import { SyncState, newFileId } from "./state";
-import { computeContentTag, conflictName, decodeAttachment, decodeNote, decodePath } from "./codec";
+import { computeContentTag, conflictName, decodeAttachment, decodeNote, decodePath, pathId } from "./codec";
 
 /** Drain the entire feed (follows hasMore). */
 export async function pull(d: Deps): Promise<void> {
@@ -87,27 +87,33 @@ async function applyConflict(
   const remoteContent = await fetchContent(row, d);
   const stamp = d.clock.conflictStamp(d.clock.now());
 
+  // The canonical slot the winner takes. If a DIFFERENT local file already
+  // occupies the remote's path (a remote rename onto a third file), don't fight
+  // for it — resolve in place at local.path so the third file is never clobbered.
+  const occupiedByThird = local.path !== path && (await d.vault.exists(path));
+  const canonical = occupiedByThird ? local.path : path;
+
   if (localMtime > row.mtime) {
-    // Local newer → local keeps the canonical path; remote becomes a conflict copy.
-    if (local.path !== path) await d.vault.rename(local.path, path);
-    const cpath = conflictName(path, stamp);
+    // Local newer → local keeps the canonical slot; remote becomes a conflict copy.
+    if (local.path !== canonical) await d.vault.rename(local.path, canonical);
+    const cpath = conflictName(canonical, stamp);
     await d.vault.writeBinary(cpath, remoteContent, row.mtime);
     d.state.enqueue({ op: "upsert", fileId: newFileId(), path: cpath });
     // Record we've seen row.version; keep local content (still dirty) and re-push it as canonical.
     d.state.upsertEntry({
-      fileId: row.fileId, path, pathId: row.pathId, type: row.type,
+      fileId: row.fileId, path: canonical, pathId: await pathId(canonical, d.keys), type: row.type,
       contentTag: await computeContentTag(localContent, d.keys), syncedVersion: row.version, mtime: localMtime,
     });
-    d.state.enqueue({ op: "upsert", fileId: row.fileId, path });
+    d.state.enqueue({ op: "upsert", fileId: row.fileId, path: canonical });
   } else {
-    // Remote newer (or tie) → remote takes the canonical path; local becomes a conflict copy.
+    // Remote newer (or tie) → remote takes the canonical slot; local becomes a conflict copy.
     const cpath = conflictName(local.path, stamp);
     await d.vault.writeBinary(cpath, localContent, localMtime);
     d.state.enqueue({ op: "upsert", fileId: newFileId(), path: cpath });
-    if (local.path !== path && (await d.vault.exists(local.path))) await d.vault.trash(local.path);
-    await d.vault.writeBinary(path, remoteContent, row.mtime);
+    if (local.path !== canonical && (await d.vault.exists(local.path))) await d.vault.trash(local.path);
+    await d.vault.writeBinary(canonical, remoteContent, row.mtime);
     d.state.upsertEntry({
-      fileId: row.fileId, path, pathId: row.pathId, type: row.type,
+      fileId: row.fileId, path: canonical, pathId: await pathId(canonical, d.keys), type: row.type,
       contentTag: row.contentTag, syncedVersion: row.version, mtime: row.mtime,
     });
   }
@@ -128,7 +134,14 @@ async function applyClean(
   // being updated in place — not a collision.
   const occupiedByOther = (!local || local.path !== path) && (await d.vault.exists(path));
   if (occupiedByOther) {
-    target = conflictName(path, d.clock.conflictStamp(d.clock.now()));
+    // If the occupant is byte-identical to the incoming remote content, it IS this
+    // file — content written by a crashed pull that never persisted state (mirrors
+    // the adopt-if-same-contentTag idempotency in push.ts). Adopt it in place
+    // instead of producing a spurious conflict copy.
+    const occTag = await computeContentTag(await d.vault.readBinary(path), d.keys);
+    if (occTag !== row.contentTag) {
+      target = conflictName(path, d.clock.conflictStamp(d.clock.now()));
+    }
   }
 
   if (local && local.path !== target && (await d.vault.exists(local.path))) {
@@ -143,7 +156,7 @@ async function applyClean(
   }
 
   d.state.upsertEntry({
-    fileId: row.fileId, path: target, pathId: row.pathId, type: row.type,
+    fileId: row.fileId, path: target, pathId: await pathId(target, d.keys), type: row.type,
     contentTag: row.contentTag, syncedVersion: row.version, mtime: row.mtime,
   });
 }

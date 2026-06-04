@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { reconcile } from "../../src/sync/reconcile";
+import { pull } from "../../src/sync/pull";
 import { SyncState } from "../../src/sync/state";
 import { FakeVault, FakeRemote, fakeClock, makeKeys } from "./fakes";
 import type { Deps } from "../../src/sync/push";
@@ -46,5 +47,31 @@ describe("reconcile (cold start)", () => {
     await reconcile(d);
     const versionAfterSecond = (await d.remote.getFileById(d.state.getByPath("a.md")!.fileId))!.version;
     expect(versionAfterSecond).toBe(versionAfterFirst);
+  });
+
+  it("does not double-enqueue a conflict copy created during pull (bug I2)", async () => {
+    const d = await deps();
+    // f1 tracked at a.md, synced v1
+    const enc1 = await encodeNote(b("base"), d.keys);
+    await d.remote.putChunks(enc1.chunks);
+    await d.remote.upsertFile({
+      fileId: "f1", pathId: await pathId("a.md", d.keys), pathCipher: await encodePath("a.md", d.keys),
+      type: "note", contentTag: enc1.contentTag, size: 4, mtime: 100, baseVersion: 0, contentChunks: enc1.contentChunks,
+    });
+    await pull(d); // a.md created, f1 v1
+    // local diverges
+    await d.vault.writeBinary("a.md", b("local edit"), 150);
+    // remote edits f1 with newer mtime (remote wins, local edit becomes a conflict copy)
+    const enc2 = await encodeNote(b("remote edit"), d.keys);
+    await d.remote.putChunks(enc2.chunks);
+    await d.remote.upsertFile({
+      fileId: "f1", pathId: await pathId("a.md", d.keys), pathCipher: await encodePath("a.md", d.keys),
+      type: "note", contentTag: enc2.contentTag, size: 11, mtime: 200, baseVersion: 1, contentChunks: enc2.contentChunks,
+    });
+    await reconcile(d); // pull creates+enqueues the conflict copy; the scan must NOT re-enqueue it
+    const conflictPath = "a (conflict 2026-06-04 12-00-00).md";
+    const cpid = await pathId(conflictPath, d.keys);
+    const rows = [...d.remote.files.values()].filter((f) => f.pathId === cpid && !f.deleted);
+    expect(rows.length).toBe(1); // pushed exactly once, not twice
   });
 });
