@@ -54,6 +54,14 @@ export class SyncState {
   queueItems(): QueueItem[] { return [...this.queue.values()]; }
   dequeue(fileId: string): void { this.queue.delete(fileId); }
 
+  /** Paths with a pending upsert in the queue. Lets pull/reconcile detect that a
+   *  path is already claimed by a local identity that hasn't been pushed yet. */
+  queuedUpsertPaths(): Set<string> {
+    const paths = new Set<string>();
+    for (const item of this.queue.values()) if (item.op === "upsert") paths.add(item.path);
+    return paths;
+  }
+
   serialize(): string {
     const data: Serialized = { cursor: this.cursor, entries: this.allEntries(), queue: this.queueItems() };
     return JSON.stringify(data);
