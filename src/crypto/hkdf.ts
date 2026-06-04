@@ -7,6 +7,7 @@ export interface Subkeys {
   // nothing about each other to the server.
   chunkMacKey: CryptoKey; // HMAC-SHA256, sign only — chunkId
   pathMacKey: CryptoKey; // HMAC-SHA256, sign only — pathId
+  contentMacKey: CryptoKey; // HMAC-SHA256, sign only — contentTag (change detection)
 }
 
 // Fixed, non-secret salt for HKDF — the DEK is the secret input.
@@ -34,6 +35,7 @@ export async function deriveSubkeys(dek: Bytes): Promise<Subkeys> {
 
   const chunkMacKey = await deriveMacKey("mac-chunk");
   const pathMacKey = await deriveMacKey("mac-path");
+  const contentMacKey = await deriveMacKey("mac-content");
 
-  return { encKey, chunkMacKey, pathMacKey };
+  return { encKey, chunkMacKey, pathMacKey, contentMacKey };
 }

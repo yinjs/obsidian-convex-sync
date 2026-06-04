@@ -41,4 +41,20 @@ describe("hkdf", () => {
       crypto.subtle.sign("HMAC", k, utf8ToBytes("collision")).then((s) => new Uint8Array(s).join(","));
     expect(await sign(chunkMacKey)).not.toBe(await sign(pathMacKey));
   });
+
+  it("derives a contentMacKey usable for HMAC signing, sign-only", async () => {
+    const { contentMacKey } = await deriveSubkeys(new Uint8Array(32).fill(3));
+    const sig = await crypto.subtle.sign("HMAC", contentMacKey, utf8ToBytes("x"));
+    expect(new Uint8Array(sig).length).toBe(32);
+    expect(contentMacKey.usages).toEqual(["sign"]);
+  });
+
+  it("contentMacKey is domain-separated from chunk and path mac keys", async () => {
+    const { chunkMacKey, pathMacKey, contentMacKey } = await deriveSubkeys(new Uint8Array(32).fill(4));
+    const sign = (k: CryptoKey) =>
+      crypto.subtle.sign("HMAC", k, utf8ToBytes("same-input")).then((s) => new Uint8Array(s).join(","));
+    const c = await sign(contentMacKey);
+    expect(c).not.toBe(await sign(chunkMacKey));
+    expect(c).not.toBe(await sign(pathMacKey));
+  });
 });
